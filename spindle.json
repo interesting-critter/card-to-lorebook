@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
-  "name": "Character Lorebook Transfer",
-  "identifier": "character_lorebook_transfer",
-  "author": "Personal",
+  "name": "Card to Lorebook",
+  "identifier": "cardbook",
+  "author": "Critter",
   "description": "Create a lorebook from character card descriptions and personalities.",
   "permissions": ["characters", "world_books"],
   "entry_backend": "dist/backend.js",
