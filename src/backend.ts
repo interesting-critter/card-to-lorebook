@@ -18,13 +18,12 @@ type WorldBookEntry = {
   comment: string
   content: string
   position: number
-  outletName?: string
-  outlet_name?: string
   [key: string]: unknown
 }
 
 type EntryDefaults = {
   position: number
+  outletName?: string
   depth: number
   role: string | null
   order_value: number
@@ -113,11 +112,12 @@ function buildEntryInput(character: Character, defaults: EntryDefaults, order: n
     .replaceAll('{{char}}', character.name)
 
   return {
-    key: [],
+    key: [character.name],
     keysecondary: [],
     content,
     comment: character.name,
-    position: 7,
+    position: defaults.position,
+    outletName: character.name,
     depth: defaults.depth,
     role: defaults.role,
     order_value: order,
@@ -138,8 +138,6 @@ function buildEntryInput(character: Character, defaults: EntryDefaults, order: n
     cooldown: defaults.cooldown,
     delay: defaults.delay,
     scan_depth: defaults.scan_depth,
-    // Lumiverse's World Info outlet position is position 7.
-    outletName: character.name,
   }
 }
 
@@ -175,7 +173,6 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
             comment: entry.comment,
             content: entry.content,
             position: entry.position,
-            outletName: entry.outletName ?? entry.outlet_name ?? '',
           })),
         }, userId)
         break

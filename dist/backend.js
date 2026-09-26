@@ -57,11 +57,12 @@ function buildEntryInput(character, defaults, order) {
         // character. {{user}} is intentionally left untouched.
         .replaceAll('{{char}}', character.name);
     return {
-        key: [],
+        key: [character.name],
         keysecondary: [],
         content,
         comment: character.name,
-        position: 7,
+        position: defaults.position,
+        outletName: character.name,
         depth: defaults.depth,
         role: defaults.role,
         order_value: order,
@@ -82,8 +83,6 @@ function buildEntryInput(character, defaults, order) {
         cooldown: defaults.cooldown,
         delay: defaults.delay,
         scan_depth: defaults.scan_depth,
-        // Lumiverse's World Info outlet position is position 7.
-        outletName: character.name,
     };
 }
 spindle.onFrontendMessage(async (payload, userId) => {
@@ -116,7 +115,6 @@ spindle.onFrontendMessage(async (payload, userId) => {
                         comment: entry.comment,
                         content: entry.content,
                         position: entry.position,
-                        outletName: entry.outletName ?? entry.outlet_name ?? '',
                     })),
                 }, userId);
                 break;

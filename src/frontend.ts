@@ -21,10 +21,10 @@ type WorldBookEntry = {
   comment: string
   content: string
   position: number
-  outletName: string
 }
 
 type Defaults = {
+  position: number
   depth: number
   role: string | null
   order_value: number
@@ -50,6 +50,7 @@ type Defaults = {
 type DuplicateMode = 'skip' | 'replace' | 'create'
 
 const DEFAULTS: Defaults = {
+  position: 0,
   depth: 4,
   role: null,
   order_value: 100,
@@ -153,7 +154,6 @@ export function setup(ctx: SpindleFrontendContext) {
     .clt-preview-item { border:1px solid var(--lumiverse-border); border-radius:6px; padding:8px; }
     .clt-preview-name { font-weight:700; font-size:12px; }
     .clt-preview-content { white-space:pre-wrap; color:var(--lumiverse-text-muted); font-size:11px; line-height:1.45; margin-top:5px; }
-    .clt-outlets { font-family:monospace; white-space:pre-wrap; width:100%; min-height:130px; resize:vertical; box-sizing:border-box; border:1px solid var(--lumiverse-border); border-radius:var(--lumiverse-radius); background:var(--lumiverse-fill-subtle); color:var(--lumiverse-text); padding:9px; font-size:11px; }
     .clt-progress-track { height:7px; background:var(--lumiverse-fill-subtle); border-radius:99px; overflow:hidden; }
     .clt-progress-bar { height:100%; width:0; background:var(--lumiverse-accent); transition:width .15s ease; }
     .clt-log { max-height:190px; overflow:auto; font-size:11px; display:flex; flex-direction:column; gap:3px; }
@@ -168,7 +168,7 @@ export function setup(ctx: SpindleFrontendContext) {
     title: 'Character Lorebook Transfer',
     shortName: 'Card Lore',
     description: 'Create lorebooks from character descriptions and personalities.',
-    keywords: ['character', 'cards', 'lorebook', 'world book', 'transfer', 'outlet'],
+    keywords: ['character', 'cards', 'lorebook', 'world book', 'transfer', 'tags'],
     headerTitle: 'Card Lore Transfer',
   })
 
@@ -176,7 +176,7 @@ export function setup(ctx: SpindleFrontendContext) {
   root.className = 'clt-shell'
 
   addEl('div', root, 'Character Lorebook Transfer').className = 'clt-title'
-  addEl('div', root, 'Create a world book whose outlet entries contain only each selected card’s description and personality. The source cards are never modified.').className = 'clt-subtitle'
+  addEl('div', root, 'Create a world book whose entries contain only each selected card’s description and personality. The source cards are never modified.').className = 'clt-subtitle'
 
   const bookSection = addEl('section', root)
   bookSection.className = 'clt-section'
@@ -202,7 +202,27 @@ export function setup(ctx: SpindleFrontendContext) {
   const defaultsSection = addEl('section', root)
   defaultsSection.className = 'clt-section'
   addEl('div', defaultsSection, '2. Entry defaults').className = 'clt-section-title'
-  addEl('div', defaultsSection, 'Every generated entry uses Outlet insertion. Outlet Name is the character’s exact card name.').className = 'clt-subtitle'
+  addEl('div', defaultsSection, 'Configure how every generated entry is inserted into the prompt.').className = 'clt-subtitle'
+
+  const positionRow = fieldLabel(defaultsSection, 'Position', '0–8, matching Lumiverse World Info positions')
+  const positionSelect = addEl('select', positionRow) as HTMLSelectElement
+  positionSelect.className = 'clt-select'
+  const positionOptions: Array<[number, string]> = [
+    [0, '0 — Before character definitions'],
+    [1, '1 — After character definitions'],
+    [2, '2 — Before Author’s Note'],
+    [3, '3 — After Author’s Note'],
+    [4, '4 — At depth'],
+    [5, '5 — Before example messages'],
+    [6, '6 — After example messages'],
+    [7, '7 — Outlet'],
+    [8, '8 — At marker ({{wi_marker}})'],
+  ]
+  for (const [value, label] of positionOptions) {
+    const option = addEl('option', positionSelect, label)
+    option.value = String(value)
+  }
+  positionSelect.value = String(DEFAULTS.position)
 
   const defaultsGrid = addEl('div', defaultsSection)
   defaultsGrid.className = 'clt-grid'
@@ -232,6 +252,13 @@ export function setup(ctx: SpindleFrontendContext) {
   searchInput.className = 'clt-search'
   searchInput.placeholder = 'Search by character name or tag...'
 
+  const tagFilter = addEl('select', charactersSection) as HTMLSelectElement
+  tagFilter.className = 'clt-select'
+  tagFilter.multiple = true
+  tagFilter.size = 5
+  tagFilter.title = 'Select one or more tags. Cards matching any selected tag are shown.'
+  addEl('option', tagFilter, 'All tags').value = ''
+
   const selectionRow = addEl('div', charactersSection)
   selectionRow.className = 'clt-row'
   const selectAllBtn = button(selectionRow, 'Select all')
@@ -256,14 +283,6 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const previewList = addEl('div', previewSection)
   previewList.className = 'clt-preview'
-
-  const outletSection = addEl('section', root)
-  outletSection.className = 'clt-section'
-  addEl('div', outletSection, 'Outlet macro list').className = 'clt-section-title'
-  addEl('div', outletSection, 'Copy this into a prompt/preset field. Each macro points at the selected character’s outlet, with two newlines between entries.').className = 'clt-subtitle'
-  const outletsText = addEl('textarea', outletSection) as HTMLTextAreaElement
-  outletsText.className = 'clt-outlets'
-  const copyOutletsBtn = button(outletSection, 'Copy outlet list')
 
   const actionRow = addEl('div', root)
   actionRow.className = 'clt-row'
@@ -291,13 +310,36 @@ export function setup(ctx: SpindleFrontendContext) {
   let loadingBatch = false
   let transferRunning = false
 
+  function selectedTags() {
+    return Array.from(tagFilter.selectedOptions)
+      .map((option) => option.value)
+      .filter(Boolean)
+  }
+
   function filteredCharacters() {
     const query = searchInput.value.trim().toLowerCase()
-    if (!query) return characters
-    return characters.filter((c) =>
-      c.name.toLowerCase().includes(query) ||
-      c.tags.some((tag) => tag.toLowerCase().includes(query)),
-    )
+    const tags = selectedTags()
+    return characters.filter((c) => {
+      const matchesQuery = !query ||
+        c.name.toLowerCase().includes(query) ||
+        c.tags.some((tag) => tag.toLowerCase().includes(query))
+      const matchesTags = tags.length === 0 || tags.some((tag) => c.tags.includes(tag))
+      return matchesQuery && matchesTags
+    })
+  }
+
+  function renderTagOptions() {
+    const selected = new Set(selectedTags())
+    const tags = [...new Set(characters.flatMap((character) => character.tags))].sort((a, b) => a.localeCompare(b))
+    tagFilter.replaceChildren()
+    const all = addEl('option', tagFilter, 'All tags')
+    all.value = ''
+    all.selected = selected.size === 0
+    for (const tag of tags) {
+      const option = addEl('option', tagFilter, tag)
+      option.value = tag
+      option.selected = selected.has(tag)
+    }
   }
 
   function renderCharacters() {
@@ -356,11 +398,6 @@ export function setup(ctx: SpindleFrontendContext) {
       ? `${selectedIds.size} card${selectedIds.size === 1 ? '' : 's'} selected${duplicates.length ? ` · ${duplicates.length} duplicate${duplicates.length === 1 ? '' : 's'} in destination` : ''}.`
       : 'Select cards to generate a preview.'
 
-    const outletNames = [...selectedIds]
-      .map((id) => characters.find((c) => c.id === id)?.name)
-      .filter((name): name is string => Boolean(name))
-    outletsText.value = outletNames.map((name) => `{{outlet::${name}}}`).join('\n\n')
-
     previewList.replaceChildren()
     for (const id of selectedIds) {
       const summary = characters.find((c) => c.id === id)
@@ -382,6 +419,7 @@ export function setup(ctx: SpindleFrontendContext) {
   function readDefaults(): Defaults {
     const scanDepth = Number(scanDepthInput.value)
     return {
+      position: Number(positionSelect.value),
       depth: Number(depthInput.value) || 4,
       role: null,
       order_value: Number(orderInput.value) || 100,
@@ -460,6 +498,16 @@ export function setup(ctx: SpindleFrontendContext) {
 
   existingBook.onchange = refreshExistingEntries
   searchInput.oninput = renderCharacters
+  tagFilter.onchange = () => {
+    const allOption = tagFilter.options[0]
+    const nonEmptySelected = Array.from(tagFilter.selectedOptions).some((option) => option.value)
+    if (nonEmptySelected) {
+      allOption.selected = false
+    } else {
+      for (const option of Array.from(tagFilter.options)) option.selected = option === allOption
+    }
+    renderCharacters()
+  }
 
   selectAllBtn.onclick = () => {
     for (const character of filteredCharacters()) selectedIds.add(character.id)
@@ -469,17 +517,6 @@ export function setup(ctx: SpindleFrontendContext) {
   clearAllBtn.onclick = () => {
     selectedIds.clear()
     updateSelectionUI()
-  }
-
-  copyOutletsBtn.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(outletsText.value)
-      copyOutletsBtn.textContent = 'Copied'
-      setTimeout(() => { copyOutletsBtn.textContent = 'Copy outlet list' }, 1200)
-    } catch {
-      outletsText.select()
-      document.execCommand('copy')
-    }
   }
 
   duplicateSelect.onchange = () => renderPreviewShell()
@@ -517,6 +554,7 @@ export function setup(ctx: SpindleFrontendContext) {
     switch (payload.type) {
       case 'characters_list': {
         characters = payload.characters || []
+        renderTagOptions()
         renderCharacters()
         updateSelectionUI()
         break
